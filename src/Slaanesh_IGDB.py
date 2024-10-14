@@ -9,6 +9,7 @@ import Slaanesh_data as data
 import Slaanesh_importexport as imex
 import threading
 import queue
+import asyncio
 
 igdb = IGDBWrapper(config.config_dictionary['igdb']['client_id'], config.config_dictionary['igdb']['auth_token'])
 update_id_queue = queue.Queue()
@@ -170,3 +171,18 @@ def match_ids_to_names(names_string: str):
         collection.append(process_api_data(byte_array))
     res = pd.concat(collection, ignore_index=True)
     imex.export_id_name_list(res)
+
+
+async def search_games_by_name(value):
+    await asyncio.sleep(0.5)
+
+    # Search games that contains (*) the given string, case-insensitive (~)
+    byte_array = igdb.api_request(
+        'games',
+        f"""fields name; limit 10; where name ~ *"{value}"*;sort rating desc;"""
+    )
+    results = process_api_data(byte_array)
+
+    if results.empty:
+        return None
+    return results

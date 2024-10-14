@@ -6,9 +6,11 @@ import Slaanesh_config as config
 import Slaanesh_data as data
 import Slaanesh_importexport as imex
 import Slaanesh_IGDB as igdb
+import asyncio
 
 dark = ui.dark_mode()
 browser_dm = None
+search_games_task = None
 
 export_timer = ui.timer(config.config_dictionary['export']['scheduled_period'], lambda:{imex.export_csv()}, active=config.config_dictionary['export']['scheduled_export'])
 
@@ -814,7 +816,8 @@ async def action_add_game():
         with ui.row().classes('items-center flex-nowrap'):
             d_add_by_id = ui.switch('Add by', value=True)
             d_igdb_id = ui.input(label="IGDB ID").bind_visibility_from(d_add_by_id, 'value')
-            d_name = ui.input(label="Name").bind_visibility_from(d_add_by_id, 'value', backward=lambda x: not x)
+            d_name = ui.select([], label="Name", with_input=True).bind_visibility_from(d_add_by_id, 'value', backward=lambda x: not x)
+            d_name.on("filter", lambda e: get_games_suggestions(e.args[0], d_name))
         with ui.row().classes('items-center flex-nowrap'):
             d_status_g = ui.select(config.config_dictionary['unplayed'], label="Status", value=config.config_dictionary['unplayed'][0]).classes('w-1/4')
             d_platform = ui.select(config.config_dictionary['platforms'], label="Platform", value=config.config_dictionary['platforms'][0]).classes('w-1/4')
@@ -894,4 +897,28 @@ def action_schedule_change(value):
     global export_timer
     config.update_config(updates=[('export','scheduled_period',value)])
     export_timer.interval = value
+
+
+async def get_games_suggestions(value, input_field):
+    if not value:
+        return
+
+    global search_games_task
+
+    # Stop the old search task, if a new one has been invoked
+    if search_games_task:
+        search_games_task.cancel()
+
+    search_games_task = asyncio.create_task(igdb.search_games_by_name(value))
+    await search_games_task
+
+    if search_games_task.result() is None:
+        return
+    df = search_games_task.result()
+
+    options = []
+    for entry in df.values.tolist():
+        options.append(entry[1])
+
+    input_field.set_options(options)
 
