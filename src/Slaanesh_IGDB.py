@@ -15,6 +15,7 @@ igdb = IGDBWrapper(config.config_dictionary['igdb']['client_id'], config.config_
 update_id_queue = queue.Queue()
 
 request_limit = 105
+MISSING_COVER_URL = "images.igdb.com/igdb/image/upload/t_thumb/nocover.jpg"
 
 
 def init_api():
@@ -179,10 +180,14 @@ async def search_games_by_name(value):
     # Search games that contains (*) the given string, case-insensitive (~)
     byte_array = igdb.api_request(
         'games',
-        f"""fields name; limit 10; where name ~ *"{value}"*;sort rating desc;"""
+        f"""fields name, cover.url; limit 10; where name ~ *"{value}"*;sort rating desc;"""
     )
     results = process_api_data(byte_array)
 
+    # Set a default image URL for games without cover
+    results["cover.url"] = results.get("cover.url", MISSING_COVER_URL)
+    results.fillna({"cover.url": MISSING_COVER_URL}, inplace=True)
+
     if results.empty:
         return None
-    return results
+    return results[["id", "name", "cover.url"]]

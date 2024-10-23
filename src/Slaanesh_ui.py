@@ -2,6 +2,7 @@ from nicegui import app, ui
 import datetime as dt
 import pandas as pd
 import numpy as np
+import re
 import Slaanesh_config as config
 import Slaanesh_data as data
 import Slaanesh_importexport as imex
@@ -814,10 +815,29 @@ def action_update_igdb_data(igdb_id: int):
 async def action_add_game():
     with ui.dialog() as dialog_ag, ui.card():
         with ui.row().classes('items-center flex-nowrap'):
-            d_add_by_id = ui.switch('Add by', value=True)
+            d_add_by_id = ui.switch('Add by', value=False)
             d_igdb_id = ui.input(label="IGDB ID").bind_visibility_from(d_add_by_id, 'value')
-            d_name = ui.select([], label="Name", with_input=True).bind_visibility_from(d_add_by_id, 'value', backward=lambda x: not x)
+            d_name = ui.select([], label="Name").bind_visibility_from(d_add_by_id, 'value', backward=lambda x: not x).props("use-input clearable")
             d_name.on("filter", lambda e: get_games_suggestions(e.args[0], d_name))
+
+            # Matches the pattern "num_id|game_name|cover_url"
+            d_name_options_regex = r"^(\d+)\|(.+)\|([^\|]+)$"
+            # Override the option and selected-item slots, to render the suggested games
+            # There is probably a more elegant solution for this
+            d_name.add_slot('option', rf'''
+                        <q-item :clickable="props.itemProps.clickable"
+                                :active="props.itemProps.active"
+                                @click="props.itemProps.onClick"
+                                :key="props.opt.value">
+                            <q-item-section avatar>
+                                <q-img :src="props.opt.label.match(/{d_name_options_regex}/)[3].replace('t_thumb', 't_cover_small')"/>
+                            </q-item-section>
+                            <q-item-section>
+                                <q-item-label>{{{{ props.opt.label.match(/{d_name_options_regex}/)[2] }}}}</q-item-label>
+                            </q-item-section>
+                        </q-item>
+                        ''')
+            d_name.add_slot('selected-item', rf'{{{{ props.opt.label.match(/{d_name_options_regex}/)[2] }}}}')
         with ui.row().classes('items-center flex-nowrap'):
             d_status_g = ui.select(config.config_dictionary['unplayed'], label="Status", value=config.config_dictionary['unplayed'][0]).classes('w-1/4')
             d_platform = ui.select(config.config_dictionary['platforms'], label="Platform", value=config.config_dictionary['platforms'][0]).classes('w-1/4')
@@ -843,9 +863,14 @@ async def action_add_game():
     res = await dialog_ag
     if res:
         add_by_id, igdb_id, name, status_g, platform, game_comment, add_pt, status_pt, date, playthrough_comment = res
+        if not name and not igdb_id:
+            return
         if not add_by_id:
             try:
-                igdb_id = igdb.get_id_to_name(name)
+                match = re.match(d_name_options_regex, name)
+                if match:
+                    igdb_id = match.group(1)
+                    name = match.group(2)
             except Exception as e:
                 ui.notify('Name could not be resolved: ' + str(e))
                 return
@@ -916,9 +941,11 @@ async def get_games_suggestions(value, input_field):
         return
     df = search_games_task.result()
 
-    options = []
-    for entry in df.values.tolist():
-        options.append(entry[1])
-
-    input_field.set_options(options)
+    # Add options to the Select
+    # Select doesn't seem to support complex objects for options, so I had to concatenate all the fields
+    input_field.options.clear()
+    for option in df.values.tolist():
+        option_string = f"{option[0]}|{option[1]}|https:{option[2]}"
+        input_field.options.append(option_string)
+    input_field.update()
 
